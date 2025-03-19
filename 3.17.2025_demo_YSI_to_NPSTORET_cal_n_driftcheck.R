@@ -1,6 +1,5 @@
-#YSI sites to NPSTORET StationIDs with qualifiers and rejections
-#testing editing in RStudio
-
+#YSI sites to NPSTORET StationIDs with qualifiers and rejections from a survey 123 file using the arcgis package
+##note: ## indicates extra notes on how I configured my data for my needs
 
 # library and set up ------------------------------------------------------
 library(tidyverse)
@@ -22,7 +21,7 @@ library(arcgis)
 #https://developers.arcgis.com/r-bridge/installation/
 
 
-#choose directory
+#choose directory - my laptop and desktop MS onedrive have different file pathways, so I uncomment either line 26 or 29 depending on whichever computer I am using
 ##desktop directory
 # directory <- "C:/Users/areynolds/OneDrive - skokomish.org/"
 
@@ -30,15 +29,17 @@ library(arcgis)
 directory <- "C:/Users/Alena Reynolds/OneDrive - skokomish.org/"
 
 
-# Bring in and configure calibration/Precheck/Postcheck data ---------------------------------
+# Bring in and configure calibration/Precheck/Postcheck data from a survey 123 using the arcgis package---------------------------------
+#https://developers.arcgis.com/r-bridge
+## you will need to get your arc GIS token set up before using this section
 
 # not sure what entirely this does
 set_arc_token(token)
 
 # get the layer url you are trying to pull from
-##this is SWQM QC table "0" or the first parent table
+##this is SWQM QC table "0" or the first parent table, aka data outside the repeat
 rul0<-"https://services6.arcgis.com/Rie25qW2R0NGMjcn/arcgis/rest/services/service_4f30060ede72457ba71c321f2a44982f/FeatureServer/0" 
-##this is SWQM QC table "1" or the second parent/child table
+##this is SWQM QC table "1" or the second parent/child table, aka data inside the repeat
 rul1<-"https://services6.arcgis.com/Rie25qW2R0NGMjcn/arcgis/rest/services/service_4f30060ede72457ba71c321f2a44982f/FeatureServer/1"
 
 # creates the pull url, include all query and token to access the data
@@ -49,22 +50,31 @@ layer1 <- arc_open(rul1, token)
 data0<-arc_select(layer)
 data1 <- arc_select(layer1)
 
+#rename globalID to be specific to table 0 and make sure the date is just a date, not a date time
+##I only need the date and global ID for table 0
 datatble0 <- data0 %>% 
   rename(data0_globalID=globalid) %>% 
   mutate(DATE= as.Date(survey_date)) %>% 
   select(data0_globalID,DATE)
 
+#rename parent globalID to be specific to table 0 and make sure the date is just a date, not a date time
+##I don't need all the calculations, just the assigned qualifiers
+##the assigned qualifiers were calculated differently depending on parameter and if it was a precheck or a calibration
 datatble1 <- data1 %>% 
   rename(data0_globalID=parentglobalid) %>% 
   select(data0_globalID, parameter_choice,standard_choice, standard_value,
          is_this_a_cal, cal_value,precheck_value, postcheck_value, criteriacal_do, 
          criteriacal_cond, criteriacal_pH, criteriacal_precheck_cond, criteriacal_precheck_pH)
 
+#join the tables together using the corresponding globalID
 swqm_qc_survey <- left_join(datatble0,datatble1,by='data0_globalID')
 
+#put all the assigned qualifiers into one column
 pivot_swqm_qc <- pivot_longer(swqm_qc_survey, cols = c(10:14), names_to = 'Criteria_method',
                               values_to = 'Criteria')
 
+#remove all lines that do not have criteria assigned
+#add a column for joining criteria data to field data
 swqm_qc_criteria <- pivot_swqm_qc %>% 
   filter(Criteria!="NA") %>% 
   mutate(cross=case_when((parameter_choice=="dissolved_oxygen") ~'ODO',
@@ -73,7 +83,7 @@ swqm_qc_criteria <- pivot_swqm_qc %>%
                          (standard_choice== "ph_4") ~'pH',
                          TRUE ~ ''))
 
-# Bring in and configure YSI results --------------------------------------
+# Bring in and configure YSI results if downloaded from KOR software --------------------------------------
 
 #set file path to be pulled to appropriate one you want to import
 YSIcsvfiles <- list.files(path=paste0(directory,"Water Quality/Sampling/Results/KOR DSS exports/WY2025/postKorUpdate"),
@@ -86,26 +96,35 @@ bind_data <- NULL
 for(f in YSIcsvfiles){
   # print("file=",f)
   #reads in each csv file
-  # alt + - = shortcut for arrow
+  #alt + - = shortcut for arrow
+  ##assign f to a specific file on linw 101 to troubleshoot inside for loop
   # f <- paste0(directory,"Water Quality/Sampling/Results/KOR DSS exports/WY2025/postKorUpdate/rready.2024.11.19.csv")
   
+  #the header has some stupid wonky characters in the units that R doesn't like and the specific instrument number - they need to be removed
   Header <- read_csv(f, col_names = FALSE,  n_max = 1)
 
-  #get rid of stupid wonky characters - used '\u00b5' instead of '\uFFFD'
+  #get rid specific instrument number
   HeaderNWC <- str_split_i(Header, "-", 1)
+  # HeaderNWC <- str_remove(Header,'\uFFFD')
   # HeaderNWC <- str_remove(Header,'\u00b5')
+  
+  #bring in file and assign the header without the instrument number
   data <- read_csv(f,col_names = HeaderNWC, skip = 1)
   dataselect <- data |> 
+    #grab only the columns/parameters you need from the file
     select(c(1:2,4,7:9,11,13:14,18,19,20))|>
+    #get rid of stupid wonky characters 
     clean_names()
+  #make sure R knows the date column is a date
   dataselect$date <- mdy(dataselect$date)
-  # dataselect$TIME <- hms(dataselect$TIME)
-  #pivot data so it is in row major format
+  #put all the parameters and the corresponding results in two columns
   dataselectpivotlonger <- pivot_longer(dataselect, cols = c(4:12), names_to = 'Parameter',
                                         values_to = 'Result') |> 
+    #give yourself a way to find the file while checking your results by assigning the file to each result
     mutate(filename = f)|> 
+    #the site and date columns need to match the site and date columns in the QC table
     rename(SITE=site_name, DATE=date) 
-  
+  #shove all the files together into one results table
   bind_data <- bind_rows(bind_data,dataselectpivotlonger)
   
   
@@ -114,32 +133,24 @@ for(f in YSIcsvfiles){
 #export to do a manual check
 #write.csv(bind_data,file="F:/OneDrive - skokomish.org/Documents/R/manualcheck.csv")
 
-#average duplicates
+#average duplicates and add counts to be used in database entry
 averaged_bind_data <- bind_data %>% 
   group_by(DATE,SITE,Parameter) %>% 
   summarise(Count = n(),average= round(mean(Result,na.rm = TRUE)), 5) %>% 
   ungroup()
 
-#,time=mean(TIME) for averaging time for dups
-#class(averaged_bind_data$time)
-
-#join averages with other data
+#join averages with main results data
 aveplusall_bind_data <- left_join(averaged_bind_data,bind_data,
                                   by=c("SITE","Parameter", "DATE"))
 
-#remove dups by average
+#remove duplicates by average - you don't need 3 entries for the same result
 USE_THIS <- distinct(aveplusall_bind_data)
 # USE_THIS <- aveplusall_bind_data %>% 
 #   distinct()
 
-#class(USE_THIS$TIME)
-
-#convert time - not necessary
-#averaged_bind_data %>% 
-#  strptime(unclass(averaged_bind_data$time), format="%H:%M:%S",tz="")
-
 
 # change temp from F to C -------------------------------------------------
+#This may be necessary if the software gave you your temp data in Fahrenheit 
 
 ## formula for Convert Fahrenheit to Celsius - https://www.geeksforgeeks.org/temperature-conversion-in-r/
 # fahrenheit_to_celsius <- function(fahrenheit) {
@@ -149,7 +160,7 @@ USE_THIS <- distinct(aveplusall_bind_data)
 # ##convert with function
 # USE_THIS$average_result <- ifelse(USE_THIS$Parameter=="Temp (F)",
 #                            fahrenheit_to_celsius(USE_THIS$average_result),USE_THIS$average_result)
-# ##change name of parameter
+# ##change name of corresponding parameter
 # USE_THIS$Parameter <- ifelse(USE_THIS$Parameter=="Temp (F)",
 #                              "Temp (C)",USE_THIS$Parameter)
 
