@@ -2,6 +2,9 @@
 ##note: ## indicates extra notes on how I configured my data for my needs
 ##note: NPSTORET is a local storet the Skokomish Water Quality Program uses as a database for discrete datasets
 
+#demo for Kendra and Angie 3.20.2025
+
+
 # library & set up ------------------------------------------------------
 library(tidyverse)
 library(readr)
