@@ -1,7 +1,8 @@
 #YSI sites to NPSTORET StationIDs with qualifiers and rejections from a survey 123 file using the arcgis package
 ##note: ## indicates extra notes on how I configured my data for my needs
+##note: NPSTORET is a local storet the Skokomish Water Quality Program uses as a database for discrete datasets
 
-# library and set up ------------------------------------------------------
+# library & set up ------------------------------------------------------
 library(tidyverse)
 library(readr)
 library(lubridate)
@@ -21,7 +22,7 @@ library(arcgis)
 #https://developers.arcgis.com/r-bridge/installation/
 
 
-#choose directory - my laptop and desktop MS onedrive have different file pathways, so I uncomment either line 26 or 29 depending on whichever computer I am using
+#choose directory - my laptop & desktop MS onedrive have different file pathways, so I uncomment either line 26 or 29 depending on whichever computer I am using
 ##desktop directory
 # directory <- "C:/Users/areynolds/OneDrive - skokomish.org/"
 
@@ -83,7 +84,7 @@ swqm_qc_criteria <- pivot_swqm_qc %>%
                          (standard_choice== "ph_4") ~'pH',
                          TRUE ~ ''))
 
-# Bring in and configure YSI results if downloaded from KOR software --------------------------------------
+# Bring in & configure YSI results if downloaded from KOR software --------------------------------------
 
 #set file path to be pulled to appropriate one you want to import
 YSIcsvfiles <- list.files(path=paste0(directory,"Water Quality/Sampling/Results/KOR DSS exports/WY2025/postKorUpdate"),
@@ -168,10 +169,11 @@ USE_THIS <- distinct(aveplusall_bind_data)
 #Use sites and parameter crosswalks to match NPSTORET and filter for only data you want to enter -------------------------------------------------------------------------
 
 #Bring in Locations Crosswalk and Character Names Crosswalk
-
+#my sites are named differently in my YSI data and in my database
 LocationsCrosswalk <- read_excel(path=paste0(directory,"Water Quality/LocationsCrosswalk.xlsx"))
-
+#my parameter are different in the KOR software and the database
 LocalCharNamesCrosswalk <- read_excel(path=paste0(directory,"Water Quality/LocCharName_Crosswalk.xlsx"))
+
 
 ##keep everything in  YSI files and bring in only columns that match ysi_sitenames and ysipar in crosswalk
 ##filter out all other parameters not entered in NPSTORET
@@ -183,7 +185,7 @@ bind_dataxwloc <- left_join(USE_THIS,LocationsCrosswalk,by=c('SITE'='ysi_sitenam
 bind_dataxwlocpar <- left_join(bind_dataxwloc,LocalCharNamesCrosswalk,
                                by=c('Parameter'='ysipar_cleannames'))
 
-# add cross for cal & drift data to match ---------------------------------
+# add cross for calibration, precheck & postdrift data to match ---------------------------------
 USE_THISCross <- bind_dataxwlocpar %>% 
   mutate(cross=case_when((Parameter=="ph") ~'pH',
                          (Parameter=="sp_cond_m_s_cm") ~'Cond',
@@ -191,17 +193,16 @@ USE_THISCross <- bind_dataxwlocpar %>%
                          (str_detect(Parameter,"do")) ~ 'ODO',
                          TRUE ~ ''))
 
-# bring cal and drift and results all together ----------------------------
-
+# bring calibration, precheck, & drift & results all together ----------------------------
 
 bind_ALL <- left_join(USE_THISCross, swqm_qc_criteria, by=c("DATE", "cross"))
 bind_ALLdistinct <- bind_ALL %>% 
   select(DATE,SITE,average,Count,time,LocSTATN_ORG_ID,StationID,StationName,DISPLAY_NAME,LocCharNameCode,
          ysipar,cross,Criteria_method,Criteria) %>% 
+  #there will be a duplicate for pH data since there are two checks, one for pH7 & one for pH4
   distinct()
 
-#CHECK that the qualifiers and rejections match the QC_Checks_YSI_ProDSS log
-
+#manually CHECK that the qualifiers and rejections match the survey 123 entries
 
 
 # add fields NPSTORET EED needs, rename for EED ---------------------------
@@ -245,7 +246,7 @@ YSIALLNPSTORET <- YSIALLNPS %>%
 
 #http://www.sthda.com/english/wiki/r-xlsx-package-a-quick-start-guide-to-manipulate-excel-files-in-r
 
-##CHANGE file NAME to correspond to what data is in it so we cannot import duplicates 
+##manually CHANGE file NAME to correspond to what data is in it so we cannot import duplicates 
 library(xlsx)
 write.xlsx(as.data.frame(YSIALLNPSTORET),file=paste0(directory,"Water Quality/NPSTORET/YSI_imports/YSI_test_12.04.24.xlsx"))
 
